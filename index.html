@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>视频上传登记系统</title>
+<title>视频上传登记系统（互通版）</title>
 <style>
 *{box-sizing:border-box;font-family:-apple-system, BlinkMacSystemFont, sans-serif}
 body{margin:10px;background:#f4f6f8}
@@ -11,24 +11,20 @@ body{margin:10px;background:#f4f6f8}
 .card{background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
 button{padding:8px 14px;border:none;border-radius:8px;background:#007aff;color:#fff;cursor:pointer;margin:2px}
 .btn-success{background:#34c759}
-.btn-warning{background:#ff9500}
-.btn-danger{background:#ff3b30}
 input,select{padding:8px 12px;border:1px solid #ddd;border-radius:8px;width:100%;margin-bottom:8px}
 .upload-box{border:1px dashed #ccc;padding:12px;border-radius:8px;margin:10px 0}
 .week-nav{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
-.week-nav button{flex-shrink:0}
-.remind{background:#ff3b30;color:white;padding:12px;border-radius:8px;margin:10px 0}
+.remind{background:#ff3b30;color:white;padding:12px;border-radius:8px}
 .stats p{margin:4px 0}
 .ok{color:#34c759;font-weight:bold}
 .fail{color:#ff3b30;font-weight:bold}
 .list-item{padding:8px 0;border-bottom:1px solid #eee}
-video{max-width:100%;border-radius:8px;margin-top:8px}
+.admin{border-top:2px solid #007aff;padding-top:10px;margin-top:20px}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>视频上传登记系统</h1>
-
   <div class="week-nav">
     <button onclick="prevWeek()">← 上一周</button>
     <span id="weekText"></span>
@@ -36,163 +32,168 @@ video{max-width:100%;border-radius:8px;margin-top:8px}
   </div>
 
   <div class="card">
-    <h3>上传视频（自行填写账户名）</h3>
-    <input type="text" id="userName" placeholder="请输入你的账户名称">
-    <select id="videoType">
-      <option value="demo">演示视频（需≥1分钟）</option>
-      <option value="part">配件视频（需≥10秒）</option>
-      <option value="ac">AppleCare 视频（需≥10秒）</option>
-      <option value="compare">比较机型视频（需≥10秒）</option>
+    <h3>上传视频</h3>
+    <input type="text" id="user" placeholder="输入你的账户名">
+    <select id="type">
+      <option value="demo">演示视频(≥1分钟)</option>
+      <option value="part">配件视频(≥10秒)</option>
+      <option value="ac">AppleCare视频(≥10秒)</option>
+      <option value="compare">比较机型视频(≥10秒)</option>
     </select>
     <div class="upload-box">
-      <input type="file" id="fileInput" accept="video/*">
+      <input type="file" id="videoFile" accept="video/*">
     </div>
-    <button class="btn-success" onclick="uploadVideo()">上传并登记</button>
-    <div id="uploadTip"></div>
+    <input type="text" id="videoLink" placeholder="可选：填写网盘视频链接，方便管理员查看">
+    <button class="btn-success" onclick="upload()">上传并登记</button>
+    <div id="tip"></div>
   </div>
 
-  <div id="warnBox" class="remind" style="display:none"></div>
+  <div id="warn" class="remind" style="display:none"></div>
 
   <div class="card">
-    <h3>本周完成统计（每类需≥7条达标）</h3>
-    <div class="stats" id="stats"></div>
+    <h3>本周统计（每类需≥7条达标）</h3>
+    <div id="stats"></div>
   </div>
 
   <div class="card">
-    <h3>本周上传记录</h3>
-    <div id="recordList"></div>
+    <h3>本周上传记录（仅自己可见）</h3>
+    <div id="list"></div>
+  </div>
+
+  <div class="card admin">
+    <h3>管理员查看全部（需密码）</h3>
+    <input type="password" id="pwd" placeholder="输入管理员密码">
+    <button onclick="showAdmin()">查看所有人记录</button>
+    <div id="adminList" style="display:none;margin-top:10px"></div>
   </div>
 </div>
 
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
+
 <script>
+// ====================== 已填入你的 Firebase 配置 ======================
+const firebaseConfig = {
+  apiKey: "AIzaSyC7LgZ_bVQh83YJHKC2BBDOVAwR0Hn2YQM",
+  authDomain: "mshkdhc.firebaseapp.com",
+  projectId: "mshkdhc",
+  storageBucket: "mshkdhc.firebasestorage.app",
+  messagingSenderId: "1035228693176",
+  appId: "1:1035228693176:web:c391293171c4d8ec206a4d"
+};
+// ====================================================================
+
+// 你可以修改这个管理员密码
+const ADMIN_PWD = "123456"; 
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
 const TYPES = {
-  demo: { name: "演示视频", need: 60 },
-  part: { name: "配件视频", need: 10 },
-  ac: { name: "AppleCare 视频", need: 10 },
-  compare: { name: "比较机型视频", need: 10 }
+  demo:{name:"演示视频",need:60},
+  part:{name:"配件视频",need:10},
+  ac:{name:"AppleCare视频",need:10},
+  compare:{name:"比较机型视频",need:10}
 };
 const TARGET = 7;
 
 let currentWeek = getWeekStart(new Date());
-let videoBlobMap = {};
 
-function getWeekStart(d) {
-  const r = new Date(d);
-  const day = r.getDay();
-  r.setDate(r.getDate() - day);
+function getWeekStart(d){
+  const r=new Date(d);
+  r.setDate(r.getDate()-r.getDay());
   r.setHours(0,0,0,0);
   return r;
 }
 
-function formatDay(d) {
-  return d.getFullYear() +"-"+ String(d.getMonth()+1).padStart(2,0) +"-"+ String(d.getDate()).padStart(2,0);
+function fmt(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,0)+'-'+String(d.getDate()).padStart(2,0);
 }
 
-function updateWeekText() {
-  const end = new Date(currentWeek);
-  end.setDate(end.getDate() + 6);
-  document.getElementById("weekText").innerText = formatDay(currentWeek) + " ～ " + formatDay(end);
+function updateWeek(){
+  const e=new Date(currentWeek);
+  e.setDate(e.getDate()+6);
+  document.getElementById("weekText").innerText=fmt(currentWeek)+' 至 '+fmt(e);
   refresh();
 }
 
-function prevWeek() {
-  currentWeek.setDate(currentWeek.getDate() - 7);
-  updateWeekText();
-}
+function prevWeek(){currentWeek.setDate(currentWeek.getDate()-7);updateWeek();}
+function nextWeek(){currentWeek.setDate(currentWeek.getDate()+7);updateWeek();}
 
-function nextWeek() {
-  currentWeek.setDate(currentWeek.getDate() + 7);
-  updateWeekText();
-}
+async function upload(){
+  const user=document.getElementById("user").value.trim();
+  const type=document.getElementById("type").value;
+  const file=document.getElementById("videoFile").files[0];
+  const link=document.getElementById("videoLink").value.trim();
+  const tip=document.getElementById("tip");
 
-function uploadVideo() {
-  const user = document.getElementById("userName").value.trim();
-  const type = document.getElementById("videoType").value;
-  const file = document.getElementById("fileInput").files[0];
-  const tip = document.getElementById("uploadTip");
+  if(!user){tip.innerHTML='<span style="color:red">请填写账户名</span>';return;}
+  if(!file){tip.innerHTML='<span style="color:red">请选择视频文件</span>';return;}
 
-  if (!user) { tip.innerHTML = '<span style="color:red">请填写账户名</span>'; return; }
-  if (!file) { tip.innerHTML = '<span style="color:red">请选择视频文件</span>'; return; }
+  const video=document.createElement("video");
+  video.preload="metadata";
+  video.onloadedmetadata=async()=>{
+    const dur=video.duration;
+    const ok=dur>=TYPES[type].need;
+    const week=fmt(currentWeek);
 
-  const video = document.createElement("video");
-  video.preload = "metadata";
+    await db.collection("records").add({
+      week,user,type,dur,ok,link,time:new Date()
+    });
 
-  video.onloadedmetadata = function() {
-    const dur = video.duration;
-    const need = TYPES[type].need;
-    const ok = dur >= need;
-
-    const key = formatDay(currentWeek);
-    const item = {
-      id: Date.now(),
-      user, type, time:new Date().toLocaleString(),
-      duration: dur, ok, fileName: file.name
-    };
-
-    let list = JSON.parse(localStorage.getItem("video_records_"+key) || "[]");
-    list.push(item);
-    localStorage.setItem("video_records_"+key, JSON.stringify(list));
-    videoBlobMap[item.id] = URL.createObjectURL(file);
-
-    tip.innerHTML = ok
-      ? `<span style="color:green">上传成功，时长${dur.toFixed(1)}秒 ✅ 达标</span>`
-      : `<span style="color:red">上传成功，但时长${dur.toFixed(1)}秒 ❌ 不达标</span>`;
-
+    tip.innerHTML=ok?`<span style="color:green">上传成功，时长${dur.toFixed(1)}秒 ✅ 达标</span>`:`<span style="color:red">上传成功，但时长不达标 ❌</span>`;
     refresh();
   };
-
-  video.src = URL.createObjectURL(file);
+  video.src=URL.createObjectURL(file);
 }
 
-function refresh() {
-  const key = formatDay(currentWeek);
-  const list = JSON.parse(localStorage.getItem("video_records_"+key) || "[]");
+async function refresh(){
+  const week=fmt(currentWeek);
+  const snap=await db.collection("records").where("week","==",week).orderBy("time","desc").get();
+  const list=[];
+  snap.forEach(d=>list.push({id:d.id,...d.data()}));
 
-  const count = { demo:0, part:0, ac:0, compare:0 };
-  list.forEach(i=>i.ok && count[i.type]++);
+  const count={demo:0,part:0,ac:0,compare:0};
+  list.forEach(i=>i.ok&&count[i.type]++);
 
-  let stats = "";
-  let warns = [];
-  for(let t in TYPES) {
-    const c = count[t];
-    const pass = c >= TARGET;
-    stats += `<p>${TYPES[t].name}：${c} 条 <span class="${pass?'ok':'fail'}">${pass?'达标':'未达标'}</span></p>`;
-    if (!pass) warns.push(TYPES[t].name);
+  let stats="",warn=[];
+  for(let t in TYPES){
+    const c=count[t];
+    const ok=c>=TARGET;
+    stats+=`<p>${TYPES[t].name}：${c}条 <span class="${ok?'ok':'fail'}">${ok?'达标':'未达标'}</span></p>`;
+    if(!ok)warn.push(TYPES[t].name);
   }
-  document.getElementById("stats").innerHTML = stats;
+  document.getElementById("stats").innerHTML=stats;
+  const w=document.getElementById("warn");
+  warn.length?(w.style.display="block",w.innerText="⚠️ 未达标："+warn.join("、")):(w.style.display="none");
 
-  const warnBox = document.getElementById("warnBox");
-  if (warns.length>0) {
-    warnBox.style.display = "block";
-    warnBox.innerText = "⚠️ 未达标：" + warns.join("、") + " 需要至少7条";
-  } else {
-    warnBox.style.display = "none";
-  }
-
-  let html = "";
+  let html="";
   list.forEach(i=>{
-    html += `<div class="list-item">
-      [${i.time}]<br>
-      账户：${i.user}｜类型：${TYPES[i.type].name}｜${i.duration.toFixed(1)}秒
+    html+=`<div class="list-item">
+      [${new Date(i.time.toDate()).toLocaleString()}]<br>
+      账户：${i.user}｜类型：${TYPES[i.type].name}｜${i.dur.toFixed(1)}秒
       <span class="${i.ok?'ok':'fail'}">${i.ok?'达标':'不达标'}</span>
-      <br>
-      <button onclick="playVideo(${i.id})">播放视频</button>
-      <div id="player-${i.id}"></div>
+      ${i.link?'<br><a href="'+i.link+'" target="_blank">查看网盘视频</a>':''}
     </div>`;
   });
-  document.getElementById("recordList").innerHTML = html;
+  document.getElementById("list").innerHTML=html;
 }
 
-function playVideo(id) {
-  const playerDiv = document.getElementById(`player-${id}`);
-  if (!videoBlobMap[id]) {
-    playerDiv.innerHTML = "视频数据不存在";
-    return;
-  }
-  playerDiv.innerHTML = `<video controls src="${videoBlobMap[id]}"></video>`;
+async function showAdmin(){
+  if(document.getElementById("pwd").value!==ADMIN_PWD){alert("密码错误");return;}
+  const week=fmt(currentWeek);
+  const snap=await db.collection("records").where("week","==",week).orderBy("time","desc").get();
+  let html="";
+  snap.forEach(d=>{
+    const i=d.data();
+    html+=`<div class="list-item"><b>${i.user}</b>｜${TYPES[i.type].name}｜${i.dur.toFixed(1)}秒 ${i.ok?'✅':'❌'} ${i.link?'<a href="'+i.link+'" target="_blank">查看视频</a>':''}</div>`;
+  });
+  document.getElementById("adminList").innerHTML=html;
+  document.getElementById("adminList").style.display="block";
 }
 
-updateWeekText();
+updateWeek();
 </script>
 </body>
 </html>
